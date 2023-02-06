@@ -2,43 +2,26 @@ import logging
 
 import numpy as np
 import os
-import time
-from autoscript_sdb_microscope_client import SdbMicroscopeClient
-from autoscript_sdb_microscope_client.structures import (
-    AdornedImage,
-    GrabFrameSettings,
-    Rectangle,
-    RunAutoCbSettings,
-)
+
 from skimage import exposure
 
-from fibsem import utils
-from fibsem.structures import BeamType, GammaSettings, ImageSettings, ReferenceImages, FibsemImage
-from fibsem import calibration
-
-
-
-
-def autocontrast(microscope: SdbMicroscopeClient, beam_type=BeamType.ELECTRON) -> None:
-    """Automatically adjust the microscope image contrast."""
-    microscope.imaging.set_active_view(beam_type.value)
-
-    cb_settings = RunAutoCbSettings(
-        method="MaxContrast",
-        resolution="768x512",  # low resolution, so as not to damage the sample
-        number_of_frames=5,
-    )
-    logging.debug("automatically adjusting contrast...")
-    microscope.auto_functions.run_auto_cb()  # cb_settings, TODO: pass through settings
+from fibsem.structures import (
+    BeamType,
+    ImageSettings,
+    ReferenceImages,
+    FibsemImage,
+    FibsemRectangle,
+)
+from fibsem.microscope import FibsemMicroscope
 
 
 def take_reference_images(
-    microscope: SdbMicroscopeClient, image_settings: ImageSettings
+    microscope: FibsemMicroscope, image_settings: ImageSettings
 ) -> list[FibsemImage]:
     """Take a reference image using both beams
 
     Args:
-        microscope (SdbMicroscopeClient): autoscript microscope instance
+        microscope (FibsemMicroscope): fibsem microscope instance
         image_settings (ImageSettings): imaging settings
 
     Returns:
@@ -58,7 +41,7 @@ def take_reference_images(
 
 
 def take_set_of_reference_images(
-    microscope: SdbMicroscopeClient,
+    microscope: FibsemMicroscope,
     image_settings: ImageSettings,
     hfws: tuple[float],
     label: str = "ref_image",
@@ -81,159 +64,62 @@ def take_set_of_reference_images(
     return reference_images
 
 
-def auto_gamma(image: FibsemImage, settings: GammaSettings) -> FibsemImage:
+def auto_gamma(image: FibsemImage, min_gamma: float = 0.0,max_gamma: float = 2.0, scale_factor: float = 0.1,gamma_threshold: int = 45 ) -> FibsemImage:
     """Automatic gamma correction"""
-    std = np.std(image.data) # unused variable?
+    std = np.std(image.data)  # unused variable?
     mean = np.mean(image.data)
     diff = mean - 255 / 2.0
     gam = np.clip(
-        settings.min_gamma, 1 + diff * settings.scale_factor, settings.max_gamma
+        min_gamma, 1 + diff * scale_factor, max_gamma
     )
-    if abs(diff) < settings.threshold:
+    if abs(diff) < gamma_threshold:
         gam = 1.0
     logging.debug(
         f"AUTO_GAMMA | {image.metadata.image_settings.beam_type} | {diff:.3f} | {gam:.3f}"
     )
     image_data = exposure.adjust_gamma(image.data, gam)
-    
+
     return FibsemImage(data=image_data, metadata=image.metadata)
 
+
 def new_image(
-    microscope: SdbMicroscopeClient,
+    microscope: FibsemMicroscope,
     settings: ImageSettings,
-    reduced_area: Rectangle = None,
 ) -> FibsemImage:
     """Apply the image settings and take a new image
 
     Args:
-        microscope (SdbMicroscopeClient): autoscript microscope client connection
+        microscope (FibsemMicroscope): fibsem microscope client connection
         settings (ImageSettings): image settings to take the image with
-        reduced_area (Rectangle, optional): image with the reduced area . Defaults to None.
+        reduced_area (FibsemRectangle, optional): image with the reduced area . Defaults to None.
 
     Returns:
-            AdornedImage: new image
+            FibsemImage: new image
+            String: filename of saved FibsemImage
     """
-    microscope = microscope.connection
 
-    # set frame settings
-    frame_settings = GrabFrameSettings(
-        resolution=settings.resolution,
-        dwell_time=settings.dwell_time,
-        reduced_area=reduced_area,
-    )
-
-    # set horizontal field width
+    # set label
     if settings.beam_type is BeamType.ELECTRON:
-        hfw_limits = microscope.beams.electron_beam.horizontal_field_width.limits
-        settings.hfw = np.clip(settings.hfw, hfw_limits.min, hfw_limits.max)
-        microscope.beams.electron_beam.horizontal_field_width.value = settings.hfw
         label = f"{settings.label}_eb"
 
     if settings.beam_type is BeamType.ION:
-        hfw_limits = microscope.beams.ion_beam.horizontal_field_width.limits
-        settings.hfw = np.clip(settings.hfw, hfw_limits.min, hfw_limits.max)
-        microscope.beams.ion_beam.horizontal_field_width.value = settings.hfw
         label = f"{settings.label}_ib"
 
     # run autocontrast
     if settings.autocontrast:
-        autocontrast(microscope, beam_type=settings.beam_type)
+        microscope.autocontrast(beam_type=settings.beam_type)
 
     # acquire the image
-    image = acquire_image(
-        microscope=microscope,
-        settings=frame_settings,
-        beam_type=settings.beam_type,
+    image = microscope.acquire_image(
+        image_settings=settings,
     )
 
-    #convert to FibsemImage
-    state = calibration.get_current_microscope_state(microscope)
-    image = FibsemImage.fromAdornedImage(image, settings, state)
+    if settings.gamma_enabled:
+        image = auto_gamma(image)
 
-    # apply gamma correction
-    if settings.gamma.enabled:
-        image = auto_gamma(image, settings.gamma)
-    
     # save image
     if settings.save:
         filename = os.path.join(settings.save_path, label)
         image.save(save_path=filename)
-    
-    return image
-
-def last_image(
-    microscope: SdbMicroscopeClient, beam_type: BeamType =BeamType.ELECTRON
-) -> AdornedImage:
-    """Get the last previously acquired image.
-
-    Args:
-        microscope (SdbMicroscopeClient):  autoscript microscope instance
-        beam_type (BeamType, optional): imaging beam type. Defaults to BeamType.ELECTRON.
-
-    Returns:
-        AdornedImage: last image
-    """
-
-    microscope = microscope.connection
-
-    microscope.imaging.set_active_view(beam_type.value)
-    microscope.imaging.set_active_device(beam_type.value)
-    image = microscope.imaging.get_image()
-    state = calibration.get_current_microscope_state(microscope)
-    image_settings = ImageSettings(
-        resolution=f"{image.width}x{image.height}",
-        dwell_time=image.metadata.scan_settings.dwell_time,
-        hfw=image.width * image.metadata.binary_result.pixel_size.x,
-        autocontrast=True,
-        beam_type=BeamType.ELECTRON,
-        gamma=GammaSettings(),
-        save=False,
-        save_path="path",
-        label=utils.current_timestamp(),
-        reduced_area=None,
-        )
-    
-    fibsem_img = FibsemImage.fromAdornedImage(image, image_settings, state)
-    return fibsem_img
-
-
-def acquire_image(
-    microscope: SdbMicroscopeClient,
-    settings: GrabFrameSettings = None,
-    beam_type: BeamType = BeamType.ELECTRON,
-) -> AdornedImage:
-    """Acquire a new image.
-
-    Args:
-        microscope (SdbMicroscopeClient): autoscript microscope instance
-        settings (GrabFrameSettings, optional): frame grab settings. Defaults to None.
-        beam_type (BeamType, optional): imaging beam type. Defaults to BeamType.ELECTRON.
-
-    Returns:
-        AdornedImage: new image
-    """
-    logging.info(f"acquiring new {beam_type.name} image.")
-    microscope.imaging.set_active_view(beam_type.value)
-    microscope.imaging.set_active_device(beam_type.value)
-    image = microscope.imaging.grab_frame(settings)
 
     return image
-
-def reset_beam_shifts(microscope: SdbMicroscopeClient):
-    """Set the beam shift to zero for the electron and ion beams
-
-    Args:
-        microscope (SdbMicroscopeClient): Autoscript microscope object
-    """
-    from autoscript_sdb_microscope_client.structures import Point
-
-    # reset zero beamshift
-    logging.debug(
-        f"reseting ebeam shift to (0, 0) from: {microscope.beams.electron_beam.beam_shift.value}"
-    )
-    microscope.beams.electron_beam.beam_shift.value = Point(0, 0)
-    logging.debug(
-        f"reseting ibeam shift to (0, 0) from: {microscope.beams.electron_beam.beam_shift.value}"
-    )
-    microscope.beams.ion_beam.beam_shift.value = Point(0, 0)
-    logging.debug(f"reset beam shifts to zero complete")

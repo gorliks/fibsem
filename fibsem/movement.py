@@ -13,6 +13,8 @@ from autoscript_sdb_microscope_client.structures import (
     StagePosition,
 )
 from fibsem.structures import BeamType, MicroscopeSettings
+from fibsem.microscope import FibsemMicroscope
+
 # from fibsem.detection.detection import DetectionResult, FeatureType
 
 
@@ -68,8 +70,13 @@ def retract_needle(microscope: SdbMicroscopeClient) -> None:
     needle.retract()
     logging.info(f"retract needle complete")
 
+
 def move_needle_to_position_offset(
-    microscope: SdbMicroscopeClient, position: ManipulatorPosition = None, dx: float = 0.0, dy: float = 0.0, dz: float = 0.0
+    microscope: SdbMicroscopeClient,
+    position: ManipulatorPosition = None,
+    dx: float = 0.0,
+    dy: float = 0.0,
+    dz: float = 0.0,
 ) -> None:
     """Move the needle to a position offset, based on the eucentric position
 
@@ -92,15 +99,11 @@ def move_needle_to_position_offset(
     position.x += dx
     position.y += yz_move.y + dy
     position.z += yz_move.z  # RAW, up = negative, STAGE: down = negative
-    position.r = None # rotation is not supported
+    position.r = None  # rotation is not supported
     microscope.specimen.manipulator.absolute_move(position)
 
 
-
-
-def x_corrected_needle_movement(
-    expected_x: float
-) -> ManipulatorPosition:
+def x_corrected_needle_movement(expected_x: float) -> ManipulatorPosition:
     """Calculate the corrected needle movement to move in the x-axis.
 
     Args:
@@ -163,7 +166,7 @@ def move_needle_relative_with_corrected_movement(
         dy (float): distance along the y-axis (image corodinates)
         beam_type (BeamType, optional): the beam type to move in. Defaults to BeamType.ELECTRON.
     """
-
+    
     needle = microscope.specimen.manipulator
     stage_tilt = microscope.specimen.stage.current_position.t
 
@@ -187,6 +190,7 @@ def move_needle_relative_with_corrected_movement(
 
 
 ############################## STAGE ##############################
+
 
 def move_flat_to_beam(
     microscope: SdbMicroscopeClient,
@@ -262,14 +266,13 @@ def angle_difference(angle1: float, angle2: float) -> float:
     Returns:
         float: _description_
     """
-    angle1 %= 2*np.pi
-    angle2 %= 2*np.pi
+    angle1 %= 2 * np.pi
+    angle2 %= 2 * np.pi
 
-    large_angle = np.max([angle1, angle2]) 
+    large_angle = np.max([angle1, angle2])
     small_angle = np.min([angle1, angle2])
 
-    return min((large_angle-small_angle), ((2*np.pi+small_angle-large_angle)))
-
+    return min((large_angle - small_angle), ((2 * np.pi + small_angle - large_angle)))
 
 
 def safe_rotation_movement(
@@ -289,8 +292,7 @@ def safe_rotation_movement(
 
         stage.absolute_move(
             StagePosition(
-                t=np.deg2rad(0), 
-                coordinate_system=stage_position.coordinate_system
+                t=np.deg2rad(0), coordinate_system=stage_position.coordinate_system
             ),
             stage_settings,
         )
@@ -318,7 +320,7 @@ def safe_absolute_stage_movement(
 
     stage = microscope.specimen.stage
     stage_settings = MoveSettings(rotate_compucentric=True)
-    
+
     stage.absolute_move(
         StagePosition(
             r=stage_position.r, coordinate_system=stage_position.coordinate_system
@@ -330,7 +332,7 @@ def safe_absolute_stage_movement(
 
     # # rotation check
     # while rotation_angle_is_larger(stage_position.r, stage.current_position.r, 0.5):
-        
+
     #     # rotate the difference
     #     diff = stage_position.r - stage.current_position.r
     #     logging.info(f"rotation angle is larger ({np.rad2deg(diff):.2f} deg) than desired, moving again.")
@@ -339,151 +341,4 @@ def safe_absolute_stage_movement(
     logging.info(f"safe movement complete.")
 
     return
-
-
-def x_corrected_stage_movement(
-    expected_x: float,
-) -> StagePosition:
-    """Calculate the x corrected stage movement.
-
-    Args:
-        expected_x (float): distance along x-axis
-
-    Returns:
-        StagePosition: x corrected stage movement (relative position)
-    """
-    return StagePosition(x=expected_x, y=0, z=0)
-
-def y_corrected_stage_movement(
-    microscope: SdbMicroscopeClient,
-    settings: MicroscopeSettings,
-    expected_y: float,
-    beam_type: BeamType = BeamType.ELECTRON,
-) -> StagePosition:
-    """Calculate the y corrected stage movement, corrected for the additional tilt of the sample holder (pre-tilt angle).
-
-    Args:
-        microscope (SdbMicroscopeClient, optional): autoscript microscope instance
-        settings (MicroscopeSettings): microscope settings
-        expected_y (float, optional): distance along y-axis.
-        beam_type (BeamType, optional): beam_type to move in. Defaults to BeamType.ELECTRON.
-
-    Returns:
-        StagePosition: y corrected stage movement (relative position)
-    """
-    
-    # TODO: replace with camera matrix * inverse kinematics
-    # TODO: replace stage_tilt_flat_to_electron with pre-tilt 
-
-    # all angles in radians
-    stage_tilt_flat_to_electron = np.deg2rad(
-        settings.system.stage.tilt_flat_to_electron
-    )
-    stage_tilt_flat_to_ion = np.deg2rad(settings.system.stage.tilt_flat_to_ion)
-
-    stage_rotation_flat_to_eb = np.deg2rad(
-        settings.system.stage.rotation_flat_to_electron
-    ) % (2 * np.pi)
-    stage_rotation_flat_to_ion = np.deg2rad(
-        settings.system.stage.rotation_flat_to_ion
-    ) % (2 * np.pi)
-
-    # current stage position
-    stage_rotation = microscope.specimen.stage.current_position.r % (2 * np.pi)
-    stage_tilt = microscope.specimen.stage.current_position.t
-
-    
-    PRETILT_SIGN = 1.0
-    # pretilt angle depends on rotation
-    if rotation_angle_is_smaller(stage_rotation, stage_rotation_flat_to_eb, atol=5):
-        PRETILT_SIGN = 1.0
-    if rotation_angle_is_smaller(stage_rotation, stage_rotation_flat_to_ion, atol=5):
-        PRETILT_SIGN = -1.0
-
-
-    corrected_pretilt_angle = PRETILT_SIGN * stage_tilt_flat_to_electron
-
-    # perspective tilt adjustment (difference between perspective view and sample coordinate system)
-    if beam_type == BeamType.ELECTRON:
-        perspective_tilt_adjustment = -corrected_pretilt_angle
-        SCALE_FACTOR = 1.0  # 0.78342  # patented technology
-    elif beam_type == BeamType.ION:
-        perspective_tilt_adjustment = -corrected_pretilt_angle - stage_tilt_flat_to_ion
-        SCALE_FACTOR = 1.0
-
-    # the amount the sample has to move in the y-axis
-    y_sample_move = (expected_y * SCALE_FACTOR) / np.cos(stage_tilt + perspective_tilt_adjustment)
-
-    # the amount the stage has to move in each axis
-    y_move = y_sample_move * np.cos(corrected_pretilt_angle)
-    z_move = y_sample_move * np.sin(corrected_pretilt_angle)
-
-    return StagePosition(x=0, y=y_move, z=z_move)
-
-def move_stage_relative_with_corrected_movement(
-    microscope: SdbMicroscopeClient,
-    settings: MicroscopeSettings,
-    dx: float,
-    dy: float,
-    beam_type: BeamType,
-) -> None:
-    """Calculate the corrected stage movements based on the beam_type, and then move the stage relatively.
-
-    Args:
-        microscope (SdbMicroscopeClient): autoscript microscope instance
-        settings (MicroscopeSettings): microscope settings
-        dx (float): distance along the x-axis (image coordinates)
-        dy (float): distance along the y-axis (image coordinates)
-        beam_type (BeamType): beam type to move in
-    """
-    stage = microscope.specimen.stage
-    wd = microscope.beams.electron_beam.working_distance.value
-
-    # calculate stage movement
-    x_move = x_corrected_stage_movement(dx)
-    yz_move = y_corrected_stage_movement(
-        microscope=microscope,
-        settings=settings,
-        expected_y=dy,
-        beam_type=beam_type,
-    )
-
-    # move stage
-    stage_position = StagePosition(x=x_move.x, y=yz_move.y, z=yz_move.z)
-    logging.info(f"moving stage ({beam_type.name}): {stage_position}")
-    stage.relative_move(stage_position)
-
-    # adjust working distance to compensate for stage movement
-    microscope.beams.electron_beam.working_distance.value = wd
-    microscope.specimen.stage.link()
-
-    return
-
-
-def move_stage_eucentric_correction(microscope: SdbMicroscopeClient, settings: MicroscopeSettings, dy: float, static_wd: bool = True) -> None:
-    """Move the stage vertically to correct eucentric point
-
-    Args:
-        microscope (SdbMicroscopeClient): autoscript microscope instance
-        dy (float): distance in y-axis (image coordinates)
-    """
-    wd = microscope.beams.electron_beam.working_distance.value
-
-    z_move = dy / np.cos(np.deg2rad(38))  # TODO: MAGIC NUMBER, 90 - fib tilt
-
-    move_settings = MoveSettings(link_z_y=True)
-    z_move = StagePosition(z=z_move, coordinate_system="Specimen")
-    microscope.specimen.stage.relative_move(z_move, move_settings)
-    logging.info(f"eucentric movement: {z_move}")
-
-    if static_wd:
-        microscope.beams.electron_beam.working_distance.value = settings.system.electron.eucentric_height
-        microscope.beams.ion_beam.working_distance.value = settings.system.ion.eucentric_height
-    else:
-        microscope.beams.electron_beam.working_distance.value = wd
-    microscope.specimen.stage.link()
-
-    # FLAG_TEST 
-    # do we need to do the working distance adjustment here?
-
 

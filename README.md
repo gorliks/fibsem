@@ -62,7 +62,7 @@ microscope = utils.connect_to_microscope(ip_address="10.0.0.1")
 # set imaging settings
 image_settings = ImageSettings(
         hfw=150e-6, 
-        resolution="1536x1024",
+        resolution=(1536, 1024),
         dwell_time=1e-6, 
         autocontrast=True, 
         beam_type=BeamType.ELECTRON)
@@ -96,6 +96,15 @@ Please see the [Installation Guide](INSTALLATION.md) for detailed instructions.
 
 Copy AutoScript /into home/user/miniconda3/envs/fibsem/lib/python3.9/site-packages/
 
+### Install TESCAN Automation SDK
+
+Ideally, please install and set up the conda environment first before proceeding to install this SDK
+
+Run the Tescan-Automation-SDK-Installer-3.x.x.exe file
+
+When asked for the python interpretor, select the existing conda environment for FIBSEM, if this python interpretor is not available, see detailed installation guide for a work around
+
+See [Installation Guide](INSTALLATION.md) for full details
 
 ## Getting Started
 

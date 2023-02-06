@@ -8,8 +8,7 @@ from fibsem.structures import (BeamSettings, BeamType,
                                GammaSettings, ImageSettings, MicroscopeState,
                                MillingSettings, StageSettings, SystemSettings,
                                BeamSystemSettings,
-                               stage_position_from_dict,
-                               stage_position_to_dict)
+                               FibsemStagePosition)
 
 
 @pytest.fixture
@@ -38,7 +37,7 @@ def beam_settings() -> BeamSettings:
         working_distance=4.0e-3,
         beam_current=60.0e-12,
         hfw=150e-6,
-        resolution="1536x1024",
+        resolution=(1536,1024),
         dwell_time=1.0e-6,
         # stigmation=1.0e-6,
     )
@@ -75,7 +74,7 @@ def image_settings(gamma_settings: GammaSettings) -> ImageSettings:
 
 
     image_settings = ImageSettings(
-        resolution="1536x1024",
+        resolution=(1536,1024),
         dwell_time=1.e-6,
         hfw=150.e-6, 
         save=False, 
@@ -186,7 +185,7 @@ def test_beam_settings_from_dict():
         "working_distance": 4.0e-3,
         "beam_current": 60.0e-12,
         "hfw": 150.0e-6,
-        "resolution": "1560x1240",
+        "resolution": (1560,1240),
         "dwell_time": 1.0e-6,
         "stigmation": 1.0e-6,
     }
@@ -240,7 +239,7 @@ def test_microscope_state_from_dict():
         "working_distance": 4.0e-3,
         "beam_current": 60.0e-12,
         "hfw": 150.0e-6,
-        "resolution": "1560x1240",
+        "resolution": (1560,1240),
         "dwell_time": 1.0e-6,
         "stigmation": 1.0e-6,
     }
@@ -250,7 +249,7 @@ def test_microscope_state_from_dict():
         "working_distance": 4.0e-3,
         "beam_current": 60.0e-12,
         "hfw": 150.0e-6,
-        "resolution": "1560x1240",
+        "resolution": (1560,1240),
         "dwell_time": 1.0e-6,
         "stigmation": 1.0e-6,
     }
@@ -327,7 +326,7 @@ def test_image_settings_from_dict():
     }
 
     image_settings_dict = {
-        "resolution": "1536x1024",
+        "resolution": (1536,1024),
         "dwell_time": 1.e-6,
         "hfw": 150.e-6,
         "autocontrast": True,
@@ -397,6 +396,7 @@ def test_system_settings_from_dict():
     settings_dict = {
         "ip_address": "10.0.0.1",
         "application_file": "autolamella",
+        "manufacturer": "Thermo",
         "stage": stage_dict,
         "ion": ion_settings_dict,
         "electron": electron_settings_dict, 
@@ -572,3 +572,85 @@ def test_point_to_list():
 
     assert point.x == point_list[0]
     assert point.y == point_list[1]
+
+
+@pytest.fixture
+def fibsem_stage_position() -> FibsemStagePosition:
+
+    stage_position = FibsemStagePosition(
+        x=1.0,
+        y=2.0,
+        z=3.0,
+        r=4.0,
+        t=5.0,
+        coordinate_system="Raw"
+    )
+
+    return stage_position
+
+
+def test_stage_position_to_dict(fibsem_stage_position: FibsemStagePosition):
+
+    fibsem_stage_position_dict = fibsem_stage_position.__to_dict__()
+
+    assert fibsem_stage_position.x == fibsem_stage_position_dict["x"]
+    assert fibsem_stage_position.y == fibsem_stage_position_dict["y"]
+    assert fibsem_stage_position.z == fibsem_stage_position_dict["z"]
+    assert fibsem_stage_position.r == fibsem_stage_position_dict["r"]
+    assert fibsem_stage_position.t == fibsem_stage_position_dict["t"]
+    assert fibsem_stage_position.coordinate_system == fibsem_stage_position_dict["coordinate_system"]
+    
+
+def test_stage_position_from_dict():
+    fibsem_stage_position_dict = {
+        "x": 1.0,
+        "y": 2.0,
+        "z": 3.0, 
+        "r": 4.0,
+        "t": 5.0,
+        "coordinate_system": "stage"
+    }
+
+    fibsem_stage_position = FibsemStagePosition.__from_dict__(fibsem_stage_position_dict)
+
+    assert fibsem_stage_position.x == fibsem_stage_position_dict["x"]
+    assert fibsem_stage_position.y == fibsem_stage_position_dict["y"]
+    assert fibsem_stage_position.z == fibsem_stage_position_dict["z"]
+    assert fibsem_stage_position.r == fibsem_stage_position_dict["r"]
+    assert fibsem_stage_position.t == fibsem_stage_position_dict["t"]
+    assert fibsem_stage_position.coordinate_system == fibsem_stage_position_dict["coordinate_system"]
+
+
+def test_stage_position_from_auto(fibsem_stage_position: FibsemStagePosition):
+
+    fibsem_stage_position_auto = StagePosition(x=1.0, y=2.0, z=3.0, r=4.0, t=5.0, coordinate_system="stage")
+    fibsem_stage_position = FibsemStagePosition.from_autoscript_position(fibsem_stage_position_auto)
+
+    assert fibsem_stage_position.x == fibsem_stage_position_auto.x
+    assert fibsem_stage_position.y == fibsem_stage_position_auto.y
+    assert fibsem_stage_position.z == fibsem_stage_position_auto.z
+    assert fibsem_stage_position.r == fibsem_stage_position_auto.r
+    assert fibsem_stage_position.t == fibsem_stage_position_auto.t
+    assert fibsem_stage_position.coordinate_system == fibsem_stage_position_auto.coordinate_system
+    
+
+def test_stage_position_to_auto():
+    fibsem_stage_position_dict = {
+        "x": 1.0,
+        "y": 2.0,
+        "z": 3.0, 
+        "r": 4.0,
+        "t": 5.0,
+        "coordinate_system": "stage"
+    }
+
+    fibsem_stage_position = FibsemStagePosition.__from_dict__(fibsem_stage_position_dict)
+
+    fibsem_stage_position_auto = fibsem_stage_position.to_autoscript_position()
+
+    assert fibsem_stage_position.x == fibsem_stage_position_auto.x
+    assert fibsem_stage_position.y == fibsem_stage_position_auto.y
+    assert fibsem_stage_position.z == fibsem_stage_position_auto.z
+    assert fibsem_stage_position.r == fibsem_stage_position_auto.r
+    assert fibsem_stage_position.t == fibsem_stage_position_auto.t
+    assert fibsem_stage_position.coordinate_system == fibsem_stage_position_auto.coordinate_system
